@@ -953,14 +953,28 @@ class LosslessPipeline():
             raise ValueError("The `run` argument must be 'run1' or 'run2'")
 
     @lossless_logger
-    def flag_epoch_ic_sd1(self):
+    def flag_epoch_ic(self, pass_label):
         """Calculate the IC standard Deviation by epoch window.
 
         Flags windows with too much standard deviation.
+
+        Parameters
+        ----------
+        run : str
+            Must be 'sd1' or 'sd2'.
+            'sd1' is meant to be the first pass, 'sd2' operates on
+            the second ICA.
         """
+
         # Calculate IC sd by window
         epochs = self.get_epochs()
-        epochs_xr = epochs_to_xr(epochs, kind="ic", ica=self.ica1)
+        if pass_label == 'sd1':
+            epochs_xr = epochs_to_xr(epochs, kind="ic", ica=self.ica1)
+        elif pass_label == 'sd2':
+            epochs_xr = epochs_to_xr(epochs, kind="ic", ica=self.ica2)
+        else:
+            raise ValueError('Invalid IC sd label.')
+
         data_sd = epochs_xr.std('time')
 
         # Create the windowing sd criteria
@@ -968,7 +982,7 @@ class LosslessPipeline():
         bad_epoch_inds = _detect_outliers(data_sd,
                                           flag_dim='epoch', **kwargs)
 
-        self.flags["epoch"].add_flag_cat('ic_sd1', bad_epoch_inds,
+        self.flags["epoch"].add_flag_cat(f'ic_{pass_label}', bad_epoch_inds,
                                          epochs)
 
         # icsd_epoch_flags=padflags(raw, icsd_epoch_flags,1,'value',.5);
@@ -1120,14 +1134,18 @@ class LosslessPipeline():
         # 11. Run ICA
         self.run_ica('run1', message="Running Initial ICA")
 
-        # 12. Calculate IC SD
-        self.flag_epoch_ic_sd1(message="Flagging time periods with noisy"
+        # 12. Calculate IC SD1
+        self.flag_epoch_ic('sd1', message="Flagging time periods with noisy"
                                        " IC's.")
 
         # 13. TODO: integrate labels from IClabels to self.flags["ic"]
         self.run_ica('run2', message="Running Final ICA.")
 
-        # 14. Flag very small time periods between flagged time
+        # 14. Calculate IC SD2
+        self.flag_epoch_ic('sd2', message="Second flagging of time periods with noisy"
+                                       " IC's.")
+
+        # 15. Flag very small time periods between flagged time
         self.flag_epoch_gap()
 
     def run_dataset(self, paths):
